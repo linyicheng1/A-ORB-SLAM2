@@ -1,7 +1,10 @@
 # A-ORB-SLAM2
 
 Todolist:
-1. change to 
+1. Modify front-end matching method to optical flow method
+2. Modify local map matching method to optical flow method
+3. Modify initialized match to gms match
+4. Modify feature point to superpoint
 
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
 
