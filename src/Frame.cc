@@ -51,9 +51,7 @@ Frame::Frame(const Frame &frame)
 {
     pyr_ = frame.pyr_;
 
-    cv::Size fullSize;
-    cv::Point ofs;
-    pyr_[3].locateROI(fullSize, ofs);
+    track_feature_pts_ = frame.track_feature_pts_;
 
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++)
@@ -68,6 +66,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     :mpORBvocabulary(voc),mpORBextractorLeft(extractorLeft),mpORBextractorRight(extractorRight), mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
      mpReferenceKF(static_cast<KeyFrame*>(NULL))
 {
+
     frameSize = imLeft.size();
     // Frame ID
     mnId=nNextId++;
@@ -197,7 +196,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
     image = imGray.clone();
     int klt_win_size = 9;
-    int nklt_pyr_lvl = 3;
+    int nklt_pyr_lvl = 6;
     cv::Size winSize(klt_win_size,klt_win_size);
     cv::buildOpticalFlowPyramid(imGray, pyr_, winSize, nklt_pyr_lvl);
 
@@ -215,7 +214,11 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
         // Set no stereo information
         mvuRight = vector<float>(N,-1);
         mvDepth = vector<float>(N,-1);
-
+        for (int i = 0;i < N; i++)
+        {
+            auto tp = std::make_shared<feature_pt>(nullptr, i, mDescriptors.row(i), false);
+            track_feature_pts_.emplace_back(tp);
+        }
         mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
         mvbOutlier = vector<bool>(N,false);
         AssignFeaturesToGrid();
@@ -238,10 +241,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
 
         mbInitialComputations=false;
     }
-
     mb = mbf/fx;
-
-
 }
 
 void Frame::extract()
@@ -257,7 +257,11 @@ void Frame::extract()
     // Set no stereo information
     mvuRight = vector<float>(N,-1);
     mvDepth = vector<float>(N,-1);
-
+    for (int i = 0;i < N; i++)
+    {
+        auto tp = std::make_shared<feature_pt>(nullptr, i, mDescriptors.row(i), false);
+        track_feature_pts_.emplace_back(tp);
+    }
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
     mvbOutlier = vector<bool>(N,false);
     AssignFeaturesToGrid();
@@ -272,13 +276,16 @@ void Frame::add_pts(const vector<cv::KeyPoint> &pts, const vector<MapPoint *> &m
     // 描述子
     cv::Mat des = cv::Mat(pts.size(), 32, CV_8U);
     // add tracked points
-    for (const auto& pt:pts)
+    for (const auto & pt : pts)
     {
         mvKeys.emplace_back(pt);
     }
     for (int i = 0;i < mps.size(); i++)
     {
-        mps[i]->GetDescriptor().copyTo(des.row(i));
+        if (mps[i] != nullptr)
+            mps[i]->GetDescriptor().copyTo(des.row(i));
+        else
+            track_feature_pts_.at(i)->des_.copyTo(des.row(i));
     }
     if (exit_num == 0)
     {
@@ -299,6 +306,7 @@ void Frame::add_pts(const vector<cv::KeyPoint> &pts, const vector<MapPoint *> &m
     // Set no stereo information
     mvuRight = vector<float>(N,-1);
     mvDepth = vector<float>(N,-1);
+
     // 链接到光流跟踪点
     for (auto mp : mps)
     {
@@ -306,6 +314,16 @@ void Frame::add_pts(const vector<cv::KeyPoint> &pts, const vector<MapPoint *> &m
         mvbOutlier.emplace_back(false);
     }
     //AssignFeaturesToGrid();
+}
+
+void Frame::update_mps()
+{
+    for (int i = 0;i < track_feature_pts_.size();i ++){
+        if (track_feature_pts_.at(i)->mp != nullptr && mvpMapPoints.at(i) == nullptr){
+            mvpMapPoints.at(i) = track_feature_pts_.at(i)->mp;
+            track_feature_pts_.at(i)->mp->GetDescriptor().copyTo(mDescriptors.row(i));
+        }
+    }
 }
 
 void Frame::add()
@@ -316,14 +334,16 @@ void Frame::add()
         int track_num = mvKeys.size();
         // 创建mask掩膜，在已经有特征的附近不提取
         cv::Mat mask = cv::Mat(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
-        int distance = 20;
+        int distance = 15;
         for (auto &pt : mvKeys) {
             cv::circle(mask, pt.pt, distance, 0, -1);
         }
         // 提取特征点
         std::vector<cv::KeyPoint> add_pts;
         cv::Mat add_des;
+
         (*mpORBextractorLeft)(image,cv::Mat(),add_pts,add_des);
+
         // 在掩膜内的特征的去掉
         std::vector<int> index;
         index.resize(add_pts.size(), -1);
@@ -353,6 +373,9 @@ void Frame::add()
         {
             if (index[i] != -1)
             {
+                auto tp = std::make_shared<feature_pt>(nullptr, track_feature_pts_.size(), add_des.row(i), false);
+                track_feature_pts_.emplace_back(tp);
+
                 mvKeys.emplace_back(add_pts.at(i));
                 mDescriptors.push_back(add_des.row(i));
                 mvpMapPoints.emplace_back(static_cast<MapPoint*>(nullptr));

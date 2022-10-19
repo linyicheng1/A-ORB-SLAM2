@@ -21,8 +21,9 @@
 #ifndef FRAME_H
 #define FRAME_H
 
+#include <utility>
 #include<vector>
-
+#include <memory>
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
@@ -40,11 +41,22 @@ namespace ORB_SLAM2
 class MapPoint;
 class KeyFrame;
 
+class feature_pt{
+public:
+    feature_pt(KeyFrame* kf, int id, cv::Mat des, bool is3d = false):first_kf(kf), index(id), is_3d(is3d), des_(des){}
+    KeyFrame* first_kf;// 第一次提取特征时的关键帧id
+    int index;// 一次提取特征时的关键帧中所处的位置
+    bool is_3d;// 是否是3d点
+    MapPoint* mp = nullptr;
+    cv::Mat des_;
+};
+
 class Frame
 {
 public:
     /************************************************************/
     cv::Size frameSize;
+
     /************************************************************/
 
     Frame();
@@ -63,6 +75,8 @@ public:
 
     void extract();
     void add();
+    // add
+    void update_mps();
     void add_pts(const std::vector<cv::KeyPoint>& pts, const std::vector<MapPoint*>& mps);
     // Extract ORB on the image. 0 for left image and 1 for right image.
     void ExtractORB(int flag, const cv::Mat &im);
@@ -144,6 +158,7 @@ public:
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
     std::vector<cv::KeyPoint> mvKeysUn;
     std::vector<cv::Mat> pyr_;
+//    std::vector<std::shared_ptr<feature_pt>> track_feature_pts_;
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
     std::vector<float> mvuRight;
@@ -193,7 +208,7 @@ public:
     static float mnMaxY;
 
     static bool mbInitialComputations;
-
+    std::vector<std::shared_ptr<feature_pt>> track_feature_pts_;
 
 private:
 
@@ -213,6 +228,8 @@ private:
     cv::Mat mtcw;
     cv::Mat mRwc;
     cv::Mat mOw; //==mtwc
+
+
 };
 
 }// namespace ORB_SLAM

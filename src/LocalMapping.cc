@@ -64,13 +64,13 @@ void LocalMapping::Run()
             MapPointCulling();
 
             // Triangulate new MapPoints
-            CreateNewMapPoints();
-
-            if(!CheckNewKeyFrames())
-            {
-                // Find more matches in neighbor keyframes and fuse point duplications
-                SearchInNeighbors();
-            }
+//            CreateNewMapPoints();
+            CreateNewMapPointsNew();
+//            if(!CheckNewKeyFrames())
+//            {
+//                // Find more matches in neighbor keyframes and fuse point duplications
+//                SearchInNeighbors();
+//            }
 
             mbAbortBA = false;
 
@@ -81,7 +81,7 @@ void LocalMapping::Run()
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
                 // Check redundant local Keyframes
-                KeyFrameCulling();
+//                KeyFrameCulling();
             }
 
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
@@ -132,9 +132,9 @@ void LocalMapping::ProcessNewKeyFrame()
         mpCurrentKeyFrame = mlNewKeyFrames.front();
         mlNewKeyFrames.pop_front();
     }
-    std::cout<<"map frame id: "<<mpCurrentKeyFrame->mnFrameId<<std::endl;
+//    std::cout<<"map frame id: "<<mpCurrentKeyFrame->mnFrameId<<std::endl;
     // Compute Bags of Words structures
-    mpCurrentKeyFrame->ComputeBoW();
+//    mpCurrentKeyFrame->ComputeBoW();
 
     // Associate MapPoints to the new keyframe and update normal and descriptor
     const vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
@@ -202,6 +202,152 @@ void LocalMapping::MapPointCulling()
         else
             lit++;
     }
+}
+
+void LocalMapping::CreateNewMapPointsNew()
+{
+    cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
+    const float &fx = mpCurrentKeyFrame->fx;
+    const float &fy = mpCurrentKeyFrame->fy;
+    const float &cx = mpCurrentKeyFrame->cx;
+    const float &cy = mpCurrentKeyFrame->cy;
+    const float &invfx = mpCurrentKeyFrame->invfx;
+    const float &invfy = mpCurrentKeyFrame->invfy;
+
+    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
+    cv::Mat Rwc1 = Rcw1.t();
+    cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
+    cv::Mat Tcw1(3,4,CV_32F);
+    Rcw1.copyTo(Tcw1.colRange(0,3));
+    tcw1.copyTo(Tcw1.col(3));
+    int nnew=0;
+    //
+    int cnt1 = 0;
+    int cnt2 = 0;
+
+    for (int i = 0;i < mpCurrentKeyFrame->track_feature_pts_.size(); i++){
+        if (mpCurrentKeyFrame->track_feature_pts_.at(i)->mp == nullptr){
+            const auto& kf = mpCurrentKeyFrame->track_feature_pts_.at(i)->first_kf;
+            if (kf == mpCurrentKeyFrame || kf->mnId == 2)
+                continue;
+
+            const auto kp_c = mpCurrentKeyFrame->mvKeysUn.at(i);
+            const auto kp1 = mpCurrentKeyFrame->mvKeysUn[i];
+            int idx2 = mpCurrentKeyFrame->track_feature_pts_.at(i)->index;
+            const auto kp2 = kf->mvKeysUn.at(idx2);
+
+            // check ratioBaselineDepth
+            cv::Mat Ow2 = kf->GetCameraCenter();
+            cv::Mat vBaseline = Ow2-Ow1;
+            const float baseline = cv::norm(vBaseline);
+
+            const float medianDepthKF2 = kf->ComputeSceneMedianDepth(2);
+            const float ratioBaselineDepth = baseline/medianDepthKF2;
+//            std::cout<<" baseline "<<baseline<<" ratioBaselineDepth "<<ratioBaselineDepth<<std::endl;
+            if(ratioBaselineDepth<0.01)
+                continue;
+
+            // Check parallax between rays
+            cv::Mat xn1 = (cv::Mat_<float>(3,1) << (kp1.pt.x-cx)*invfx, (kp1.pt.y-cy)*invfy, 1.0);
+            cv::Mat xn2 = (cv::Mat_<float>(3,1) << (kp2.pt.x-cx)*invfx, (kp2.pt.y-cy)*invfy, 1.0);
+
+            cv::Mat Rcw2 = kf->GetRotation();
+            cv::Mat Rwc2 = Rcw2.t();
+            cv::Mat tcw2 = kf->GetTranslation();
+            cv::Mat Tcw2(3,4,CV_32F);
+            Rcw2.copyTo(Tcw2.colRange(0,3));
+            tcw2.copyTo(Tcw2.col(3));
+
+            cv::Mat ray1 = Rwc1*xn1;
+            cv::Mat ray2 = Rwc2*xn2;
+            const float cosParallaxRays = ray1.dot(ray2)/(cv::norm(ray1)*cv::norm(ray2));
+            if (cosParallaxRays > 0.9998)
+                continue;
+
+            cnt1 ++;
+            cv::Mat x3D;
+            // triangle point
+            {
+                // Linear Triangulation Method
+                cv::Mat A(4,4,CV_32F);
+                A.row(0) = xn1.at<float>(0)*Tcw1.row(2)-Tcw1.row(0);
+                A.row(1) = xn1.at<float>(1)*Tcw1.row(2)-Tcw1.row(1);
+                A.row(2) = xn2.at<float>(0)*Tcw2.row(2)-Tcw2.row(0);
+                A.row(3) = xn2.at<float>(1)*Tcw2.row(2)-Tcw2.row(1);
+
+                cv::Mat w,u,vt;
+                cv::SVD::compute(A,w,u,vt,cv::SVD::MODIFY_A| cv::SVD::FULL_UV);
+
+                x3D = vt.row(3).t();
+
+                if(x3D.at<float>(3)==0)
+                    continue;
+
+                // Euclidean coordinates
+                x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
+            }
+            // check z in two frame
+            cv::Mat x3Dt = x3D.t();
+
+            cnt2 ++;
+            //Check triangulation in front of cameras
+            float z1 = Rcw1.row(2).dot(x3Dt)+tcw1.at<float>(2);
+            if(z1<=0)
+                continue;
+
+            float z2 = Rcw2.row(2).dot(x3Dt)+tcw2.at<float>(2);
+            if(z2<=0)
+                continue;
+
+            //Check reprojection error in first keyframe
+            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave];
+            const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);
+            const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);
+            const float invz1 = 1.0/z1;
+
+            float u1 = fx*x1*invz1+cx;
+            float v1 = fy*y1*invz1+cy;
+            float errX1 = u1 - kp1.pt.x;
+            float errY1 = v1 - kp1.pt.y;
+            if((errX1*errX1+errY1*errY1)>5.991*sigmaSquare1)
+                continue;
+
+            //Check reprojection error in second keyframe
+            const float sigmaSquare2 = kf->mvLevelSigma2[kp2.octave];
+            const float x2 = Rcw2.row(0).dot(x3Dt)+tcw2.at<float>(0);
+            const float y2 = Rcw2.row(1).dot(x3Dt)+tcw2.at<float>(1);
+            const float invz2 = 1.0/z2;
+            float u2 = fx*x2*invz2+cx;
+            float v2 = fy*y2*invz2+cy;
+            float errX2 = u2 - kp2.pt.x;
+            float errY2 = v2 - kp2.pt.y;
+            if((errX2*errX2+errY2*errY2)>5.991*sigmaSquare2)
+                continue;
+
+            // Triangulation is succesfull add new mappoint
+            MapPoint* pMP = new MapPoint(x3D,mpCurrentKeyFrame,mpMap);
+
+            pMP->AddObservation(mpCurrentKeyFrame,i);
+            pMP->AddObservation(kf,mpCurrentKeyFrame->track_feature_pts_.at(i)->index);
+            // add lyc
+            mpCurrentKeyFrame->track_feature_pts_.at(i)->mp = pMP;
+            mpCurrentKeyFrame->track_feature_pts_.at(i)->is_3d = true;
+
+            mpCurrentKeyFrame->AddMapPoint(pMP,i);
+            kf->AddMapPoint(pMP, mpCurrentKeyFrame->track_feature_pts_.at(i)->index);
+
+            pMP->ComputeDistinctiveDescriptors();
+
+            pMP->UpdateNormalAndDepth();
+
+            mpMap->AddMapPoint(pMP);
+            mlpRecentAddedMapPoints.push_back(pMP);
+
+            nnew++;
+        }
+    }
+//    std::cout<<"cnt1 "<<cnt1<<" cnt2 "<<cnt2<<std::endl;
+//    std::cout<<"add new map points: "<<nnew<<std::endl;
 }
 
 // 创建新地图点
@@ -479,6 +625,9 @@ void LocalMapping::CreateNewMapPoints()
 
             pMP->AddObservation(mpCurrentKeyFrame,idx1);            
             pMP->AddObservation(pKF2,idx2);
+            // add lyc
+            mpCurrentKeyFrame->track_feature_pts_.at(idx1)->mp = pMP;
+            mpCurrentKeyFrame->track_feature_pts_.at(idx1)->is_3d = true;
 
             mpCurrentKeyFrame->AddMapPoint(pMP,idx1);
             pKF2->AddMapPoint(pMP,idx2);
@@ -494,7 +643,7 @@ void LocalMapping::CreateNewMapPoints()
         }
         //std::cout<<" add: "<<nnew - last<<std::endl;
     }
-    std::cout<<" add new mp: "<<nnew<<std::endl;
+//    std::cout<<" add new mp: "<<nnew<<std::endl;
 //    if (mp_num > 1000){
 //        cv::Mat show = mpCurrentKeyFrame->pyr_[0].clone();
 //        cv::cvtColor(show, show, CV_GRAY2BGR);
@@ -850,5 +999,7 @@ bool LocalMapping::isFinished()
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinished;
 }
+
+
 
 } //namespace ORB_SLAM

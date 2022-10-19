@@ -44,7 +44,12 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mbToBeErased(false), mbBad(false), mHalfBaseline(F.mb/2), mpMap(pMap), frameSize(F.frameSize)
 {
     pyr_ = F.pyr_;
-
+    track_feature_pts_ = F.track_feature_pts_;
+    for (auto tp:track_feature_pts_){
+        if (tp->first_kf == nullptr){
+            tp->first_kf = this;
+        }
+    }
     mnId=nNextId++;
 
     mGrid.resize(mnGridCols);

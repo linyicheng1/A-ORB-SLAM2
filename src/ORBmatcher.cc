@@ -224,15 +224,15 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, KeyFrame *LastFram
             v3dkpids.push_back(cnt);
         }
     }
-    if (CurrentFrame.mnId >= 1550)
-    {// TODO show
-        std::cout<<" current "<<Rcw<<tcw<<std::endl;
-        std::cout<<" last "<<Rlw<<tlw<<std::endl;
-        cv::drawKeypoints(LastFrame->pyr_[0], pts2, show);
-        cv::imshow("show", show);
-        cv::waitKey(0);
-    }
-    std::cout<<" local pts: "<<v3dkps.size();
+//    if (CurrentFrame.mnId >= 1550)
+//    {// TODO show
+//        std::cout<<" current "<<Rcw<<tcw<<std::endl;
+//        std::cout<<" last "<<Rlw<<tlw<<std::endl;
+//        cv::drawKeypoints(LastFrame->pyr_[0], pts2, show);
+//        cv::imshow("show", show);
+//        cv::waitKey(0);
+//    }
+//    std::cout<<" local pts: "<<v3dkps.size();
     int nklt_win_size = 9;
     float nklt_err = 30;
     float max_fbklt_dist = 0.5f;
@@ -257,6 +257,25 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, KeyFrame *LastFram
                 v3dpriors,
                 vkpstatus);
 
+        // F check
+        std::vector<int> index;
+        std::vector<cv::Point2f> un_cur_pts, un_forw_pts;
+        for (int i = 0;i < vkpstatus.size();i ++){
+            if (vkpstatus[i]){
+                index.emplace_back(i);
+                un_cur_pts.emplace_back(v3dkps.at(i));
+                un_forw_pts.emplace_back(v3dpriors.at(i));
+            }
+        }
+        if (un_cur_pts.size() > 10){
+            vector<uchar> status;
+            cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, 1.0, 0.99, status);
+            for (int i = 0;i < status.size();i ++){
+                if (!status[i]){
+                    vkpstatus.at(index.at(i)) = false;
+                }
+            }
+        }
 
         size_t nbkps = v3dkps.size();
         std::vector<cv::KeyPoint> tracked_kps;
@@ -265,33 +284,38 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, KeyFrame *LastFram
         tracked_mps.reserve(nbkps);
         for(size_t i = 0 ; i < nbkps  ; i++ ){
             if( vkpstatus.at(i) ){
-                cv::KeyPoint pt = LastFrame->mvKeys.at(i);// 其他性质和之前一样
+                cv::KeyPoint pt = LastFrame->mvKeys.at(v3dkpids.at(i));// 其他性质和之前一样
                 pt.pt = v3dpriors.at(i);// 新帧上的位置
                 tracked_kps.emplace_back(pt);
                 LastFrame->GetMapPointMatches().at(v3dkpids.at(i))->mnLastFrameSeen = CurrentFrame.mnId;
                 tracked_mps.emplace_back(LastFrame->GetMapPointMatches().at(v3dkpids.at(i)));
+                LastFrame->GetMapPoint(v3dkpids.at(i))->mnLastFrameSeen = CurrentFrame.mnId;
+                CurrentFrame.track_feature_pts_.emplace_back(LastFrame->track_feature_pts_.at(v3dkpids.at(i)));
                 nbgood++;
             }
         }
         CurrentFrame.add_pts(tracked_kps, tracked_mps);
     }
-    std::cout<<" tracked "<<nbgood;
+//    std::cout<<" tracked "<<nbgood;
     return nbgood;
 }
 
 
 int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono)
 {
+   // assert(LastFrame.mvKeys.size() == LastFrame.track_feature_pts_.size());
     int nbgood = 0;
     //std::cout<<"kltTracking function working!"<<std::endl;
 
     // Get current kps and init priors for tracking
 
-    std::vector<int> v3dkpids;
-    std::vector<cv::Point2f> v3dkps, v3dpriors;
+    std::vector<int> v3dkpids, v2dkpids;
+    std::vector<cv::Point2f> v3dkps, v3dpriors, v2dkps, v2dpriors;
 
     v3dkpids.reserve(LastFrame.mvpMapPoints.size());
     v3dpriors.reserve(LastFrame.mvpMapPoints.size());
+    v2dkpids.reserve(LastFrame.mvpMapPoints.size());
+    v2dpriors.reserve(LastFrame.mvpMapPoints.size());
 
     const cv::Mat Rcw = CurrentFrame.mTcw.rowRange(0,3).colRange(0,3);
     const cv::Mat tcw = CurrentFrame.mTcw.rowRange(0,3).col(3);
@@ -305,11 +329,19 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, const Frame &LastF
 
     int cnt = -1;
     // Front-End is thread-safe we can direclty access curframe's kps
-    std::cout<<" mp "<<LastFrame.mvpMapPoints.size();
+//    std::cout<<" mp "<<LastFrame.mvpMapPoints.size();
     for(const auto &mp : LastFrame.mvpMapPoints)
     {
         cnt ++;
-        if (mp == nullptr || mp->isBad())
+        if (mp == nullptr) {
+            float u = LastFrame.mvKeys.at(cnt).pt.x;
+            float v = LastFrame.mvKeys.at(cnt).pt.y;
+            v2dkps.emplace_back(u, v);
+            v2dpriors.emplace_back(u, v);
+            v2dkpids.push_back(cnt);
+            continue;
+        }
+        if(mp->isBad())
             continue;
         cv::Mat x3Dw = mp->GetWorldPos();
         cv::Mat x3Dc = Rcw*x3Dw+tcw;
@@ -318,21 +350,25 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, const Frame &LastF
         const float yc = x3Dc.at<float>(1);
         const float invzc = 1.f/x3Dc.at<float>(2);
 
-        if(invzc<0)
-            continue;
-
         float u = CurrentFrame.fx*xc*invzc+CurrentFrame.cx;
         float v = CurrentFrame.fy*yc*invzc+CurrentFrame.cy;
-
-        if(u<CurrentFrame.mnMinX || u>CurrentFrame.mnMaxX)
+        if(invzc<0 ||
+           u<CurrentFrame.mnMinX ||
+           u>CurrentFrame.mnMaxX ||
+           v<CurrentFrame.mnMinY ||
+           v>CurrentFrame.mnMaxY){
+            u = LastFrame.mvKeys.at(cnt).pt.x;
+            v = LastFrame.mvKeys.at(cnt).pt.y;
+            v2dkps.emplace_back(u, v);
+            v2dpriors.emplace_back(u, v);
+            v2dkpids.push_back(cnt);
             continue;
-        if(v<CurrentFrame.mnMinY || v>CurrentFrame.mnMaxY)
-            continue;
+        }
         v3dkps.emplace_back(LastFrame.mvKeys.at(cnt).pt);
         v3dpriors.emplace_back(u, v);
         v3dkpids.push_back(cnt);
     }
-    std::cout<<" current pt "<<v3dpriors.size();
+//    std::cout<<" current pt "<<v3dpriors.size();
     int nklt_win_size = 9;
     float nklt_err = 30;
     float max_fbklt_dist = 0.5f;
@@ -357,22 +393,103 @@ int ORBmatcher::SearchByProjectionWithOF(Frame &CurrentFrame, const Frame &LastF
                 v3dpriors,
                 vkpstatus);
 
+        // TODO F check
+        std::vector<int> index;
+        std::vector<cv::Point2f> un_cur_pts, un_forw_pts;
+        for (int i = 0;i < vkpstatus.size();i ++){
+            if (vkpstatus[i]){
+                index.emplace_back(i);
+                un_cur_pts.emplace_back(v3dkps.at(i));
+                un_forw_pts.emplace_back(v3dpriors.at(i));
+            }
+        }
+        vector<uchar> status;
+        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, 1.0, 0.99, status);
+        for (int i = 0;i < status.size();i ++){
+            if (!status[i]){
+                vkpstatus.at(index.at(i)) = false;
+            }
+        }
 
         size_t nbkps = v3dkps.size();
         std::vector<cv::KeyPoint> tracked_kps;
         std::vector<MapPoint*> tracked_mps;
         tracked_kps.reserve(nbkps);
         tracked_mps.reserve(nbkps);
+        CurrentFrame.track_feature_pts_.reserve(nbkps);
         for(size_t i = 0 ; i < nbkps  ; i++ )
         {
-            if( vkpstatus.at(i) )
-            {
-                cv::KeyPoint pt = LastFrame.mvKeys.at(i);// 其他性质和之前一样
+            if( vkpstatus.at(i) ){
+                cv::KeyPoint pt = LastFrame.mvKeys.at(v3dkpids.at(i));// 其他性质和之前一样
                 pt.pt = v3dpriors.at(i);// 新帧上的位置
                 tracked_kps.emplace_back(pt);
                 tracked_mps.emplace_back(LastFrame.mvpMapPoints.at(v3dkpids.at(i)));
                 LastFrame.mvpMapPoints.at(v3dkpids.at(i))->mnLastFrameSeen = CurrentFrame.mnId;
+                CurrentFrame.track_feature_pts_.emplace_back(LastFrame.track_feature_pts_.at(v3dkpids.at(i)));
                 nbgood++;
+            }
+            else{// points not track success
+                int id = v3dkpids.at(i);
+                float u = LastFrame.mvKeys.at(id).pt.x;
+                float v = LastFrame.mvKeys.at(id).pt.y;
+                v2dkps.emplace_back(u, v);
+                v2dpriors.emplace_back(u, v);
+                v2dkpids.push_back(id);
+            }
+        }
+        CurrentFrame.add_pts(tracked_kps, tracked_mps);
+    }
+    // track 2d kps and the points tracked fail
+
+    if (!v2dkps.empty())
+    {
+        // Good / bad kps vector
+        std::vector<bool> vkpstatus;
+        int nbpyrlvl = 6;
+        fbKltTracking(
+                LastFrame.pyr_,
+                CurrentFrame.pyr_,
+                nklt_win_size,
+                nbpyrlvl,
+                nklt_err,
+                max_fbklt_dist,
+                v2dkps,
+                v2dpriors,
+                vkpstatus);
+        // TODO F check
+        std::vector<int> index;
+        std::vector<cv::Point2f> un_cur_pts, un_forw_pts;
+        for (int i = 0;i < vkpstatus.size();i ++){
+            if (vkpstatus[i]){
+                index.emplace_back(i);
+                un_cur_pts.emplace_back(v2dkps.at(i));
+                un_forw_pts.emplace_back(v2dpriors.at(i));
+            }
+        }
+        vector<uchar> status;
+        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, 1.0, 0.99, status);
+        for (int i = 0;i < status.size();i ++){
+            if (!status[i]){
+                vkpstatus.at(index.at(i)) = false;
+            }
+        }
+
+        std::vector<cv::KeyPoint> tracked_kps;
+        std::vector<MapPoint*> tracked_mps;
+
+        for(size_t i = 0 ; i < v2dkps.size(); i++ ){
+            if (vkpstatus.at(i)){
+                int id = v2dkpids.at(i);
+                cv::KeyPoint pt = LastFrame.mvKeys.at(id);// 其他性质和之前一样
+                pt.pt = v2dpriors.at(i);// 新帧上的位置
+                tracked_kps.emplace_back(pt);
+                tracked_mps.emplace_back(LastFrame.mvpMapPoints.at(id));
+                CurrentFrame.track_feature_pts_.emplace_back(LastFrame.track_feature_pts_.at(id));
+
+                if (LastFrame.mvpMapPoints.at(id) != nullptr){
+                    LastFrame.mvpMapPoints.at(id)->mnLastFrameSeen = CurrentFrame.mnId;
+                    nbgood++;
+                }
             }
         }
         CurrentFrame.add_pts(tracked_kps, tracked_mps);

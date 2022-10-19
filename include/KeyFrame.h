@@ -28,7 +28,7 @@
 #include "ORBextractor.h"
 #include "Frame.h"
 #include "KeyFrameDatabase.h"
-
+#include <memory>
 #include <mutex>
 
 
@@ -39,6 +39,7 @@ class Map;
 class MapPoint;
 class Frame;
 class KeyFrameDatabase;
+class feature_pt;
 
 class KeyFrame
 {
@@ -121,7 +122,7 @@ public:
 
     // The following variables are accesed from only 1 thread or never change (no mutex needed).
 public:
-
+    std::vector<std::shared_ptr<feature_pt>> track_feature_pts_;
     static long unsigned int nNextId;
     long unsigned int mnId;
     const long unsigned int mnFrameId;

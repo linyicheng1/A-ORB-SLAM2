@@ -142,6 +142,7 @@ protected:
     void SearchLocalPoints();
 
     bool NeedNewKeyFrame();
+    bool NeedNewKeyFrameNew();
     void CreateNewKeyFrame();
 
     // In case of performing only localization, this flag is true when there are no matches to

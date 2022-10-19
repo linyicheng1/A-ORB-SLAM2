@@ -24,7 +24,7 @@
 #include"KeyFrame.h"
 #include"Frame.h"
 #include"Map.h"
-
+#include <memory>
 #include<opencv2/core/core.hpp>
 #include<mutex>
 
@@ -34,7 +34,7 @@ namespace ORB_SLAM2
 class KeyFrame;
 class Map;
 class Frame;
-
+class feature_pt;
 
 class MapPoint
 {
@@ -82,6 +82,7 @@ public:
     int PredictScale(const float &currentDist, Frame* pF);
 
 public:
+    std::shared_ptr<feature_pt> feature;
     long unsigned int mnId;
     static long unsigned int nNextId;
     long int mnFirstKFid;
