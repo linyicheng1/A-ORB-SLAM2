@@ -3,10 +3,13 @@
 [![image](https://user-images.githubusercontent.com/50650063/197400265-91ddf201-0466-4c44-a578-d8f2201ff4e1.png)](https://www.bilibili.com/video/BV1Re4y1m77w/)
 
 ✅ Modify front-end matching method to optical flow method
+
 ✅ Modify local map matching method to optical flow method
+
 ✅ Modify initialized match to gms match
 
 Todolist:
+
 ❎ Modify feature point to superpoint 
 
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
