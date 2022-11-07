@@ -12,6 +12,51 @@ Todolist:
 
 ❎ Modify feature point to superpoint 
 
+Track coverage $\frac{tracked frames}{total frames}$
+
+ORB-SLAM2
+
+||speed sequence|shake sequence|motion blur sequence|underwater sequence|HDR sequence|
+|-|-|-|-|-|-|
+|seq00|1|1|1|1|x|
+|seq01|1|0.23|1|1|x|
+|seq02|0.90|0.19|1|1|x|
+|seq03|0.28|0.30|0.31|1|x|
+|seq04|0.23|0.25|0.31|0.27|x|
+
+A-ORB-SLAM
+
+||speed sequence|shake sequence|motion blur sequence|underwater sequence|HDR sequence|
+|-|-|-|-|-|-|
+|seq00|1|1|1|1|x|
+|seq01|1|1|1|1|x|
+|seq02|1|0.69|0.41|1|x|
+|seq03|0.74|0.84|0.26|1|x|
+|seq04|0.30|0.55|0.26|0.27|x|
+
+APE/RPE comparison 
+
+ORB-SLAM2
+
+|(APE/RPE)|speed sequence|shake sequence|motion blur sequence|underwater sequence|HDR sequence|
+|-|-|-|-|-|-|
+|seq00|19.70/1.1|18.44/0.72|0.11/0.25|0.54/0.56|x|
+|seq01| \\ | \\ |0.53/0.28|0.48/0.56|x|
+|seq02| \\ | \\ |2.7/0.25|1.18/0.55|x|
+|seq03| \\ | \\ | \\ |1.8/0.55|x|
+|seq04| \\ | \\ | \\ | \\ |x|
+
+A-ORB-SLAM
+
+||speed sequence|shake sequence|motion blur sequence|underwater sequence|HDR sequence|
+|-|-|-|-|-|-|
+|seq00|7.26/1.12|4.88/0.75|0.27/0.24|1.9/0.56|x|
+|seq01|3.16/1.90|3.32/0.76|0.78/0.24|1.91/0.56|x|
+|seq02| \\ | \\ | \\ |3.91/0.58|x|
+|seq03| \\ | \\ | \\ |3.39/0.54|x|
+|seq04| \\ | \\ | \\ | \\ |x|
+
+
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
 
 **13 Jan 2017**: OpenCV 3 and Eigen 3.3 are now supported.
